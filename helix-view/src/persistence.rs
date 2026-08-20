@@ -72,7 +72,7 @@ pub fn trim_search_history(limit: usize) {
     trim_history::<String>(search_histfile(), limit)
 }
 
-pub fn write_clipboard_file(values: &Vec<String>) {
+pub fn write_clipboard_file(values: &[String]) {
     write_history(clipboard_file(), values)
 }
 

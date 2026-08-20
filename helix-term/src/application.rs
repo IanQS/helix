@@ -278,16 +278,11 @@ impl Application {
                         // `--vsplit` or `--hsplit` are used, the file which is
                         // opened last is focused on.
                         //
-                        // Only apply CLI positions when explicitly provided.
-                        // `parse_file` yields Position::default() (0,0) when no
-                        // `:line` is given; applying that would clobber
-                        // [editor.persistence] old-files restore from open().
-                        let apply_cli_pos = match pos.as_slice() {
-                            [] => false,
-                            [p] if *p == helix_core::Position::default() => false,
-                            _ => true,
-                        };
-                        if apply_cli_pos {
+                        // Only apply CLI positions when explicitly provided
+                        // (`hx file:LINE[:COL]`, `+N`). When absent, any
+                        // position restored by [editor.persistence] old-files
+                        // inside open() must stand.
+                        if let Some(pos) = pos {
                             let view_id = editor.tree.focus;
                             let doc = doc_mut!(editor, &doc_id);
                             let selection = pos
