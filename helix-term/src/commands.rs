@@ -3563,6 +3563,9 @@ fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
         let reg_name = cx
             .register
             .unwrap_or_else(|| cx.editor.config.load().default_yank_register);
+        if cx.editor.config.load().persistence.clipboard {
+            persistence::write_clipboard_file(&values);
+        }
         if let Err(err) = cx.editor.registers.write(reg_name, values) {
             cx.editor.set_error(err.to_string());
             return;

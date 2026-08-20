@@ -128,11 +128,14 @@ async fn test_persistence() -> anyhow::Result<()> {
     // session 3 sent more searches (4: "/a", "/1", "/2", "/3") than the trim limit (3), so when
     // session 4 starts, it should perform a trim, removing the oldest entry ("/a") while leaving
     // the other 3 intact.
-    // The weird looking format of the string is because persistence data is encoded using bincode.
-    assert_eq!(
-        search_histfile_contents,
-        "\u{1}\0\0\0\0\0\0\01\u{1}\0\0\0\0\0\0\02\u{1}\0\0\0\0\0\0\03"
-    );
+    // Persistence data is encoded using bincode: each entry is a little-endian u64 length
+    // followed by its UTF-8 bytes.
+    let mut expected_contents = Vec::new();
+    for entry in ["1", "2", "3"] {
+        expected_contents.extend_from_slice(&1_u64.to_le_bytes());
+        expected_contents.extend_from_slice(entry.as_bytes());
+    }
+    assert_eq!(search_histfile_contents.into_bytes(), expected_contents);
 
     Ok(())
 }
