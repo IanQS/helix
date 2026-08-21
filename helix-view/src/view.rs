@@ -215,18 +215,25 @@ impl View {
         let text_line_count = text.len_lines();
         let first_line = text.char_to_line(doc.view_offset(self.id).anchor.min(text.len_chars()));
         let last_line = first_line
-            .saturating_add(self.inner_height())
+            .saturating_add(self.inner_height(doc))
             .min(text_line_count);
 
         first_line..last_line
     }
 
     pub fn inner_area(&self, doc: &Document) -> Rect {
-        self.area.clip_left(self.gutter_offset(doc)).clip_bottom(1) // -1 for statusline
+        self.area
+            .clip_top(self.breadcrumb_offset(doc))
+            .clip_left(self.gutter_offset(doc))
+            .clip_bottom(1) // -1 for statusline
     }
 
-    pub fn inner_height(&self) -> usize {
-        self.area.clip_bottom(1).height.into() // -1 for statusline
+    pub fn inner_height(&self, doc: &Document) -> usize {
+        self.area
+            .clip_top(self.breadcrumb_offset(doc))
+            .clip_bottom(1) // -1 for statusline
+            .height
+            .into()
     }
 
     pub fn inner_width(&self, doc: &Document) -> u16 {
@@ -249,6 +256,11 @@ impl View {
         } else {
             0
         }
+    }
+
+    /// Height in rows taken by the breadcrumb bar (0 or 1).
+    pub fn breadcrumb_offset(&self, doc: &Document) -> u16 {
+        u16::from(doc.config.load().breadcrumb.enable)
     }
 
     //
@@ -398,7 +410,7 @@ impl View {
         doc_text.nth_next_folded_line(
             &annotations.folds,
             line,
-            self.inner_height().saturating_sub(1),
+            self.inner_height(doc).saturating_sub(1),
         )
     }
 
