@@ -455,6 +455,8 @@ pub struct Config {
     pub file_picker: FilePickerConfig,
     /// Configuration of the bufferline
     pub bufferline: BufferLineConfig,
+    /// Persistently display a breadcrumb navigation bar along the top of each view
+    pub breadcrumb: BreadcrumbConfig,
     /// Configuration of the file explorer
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
@@ -1154,6 +1156,43 @@ impl Default for BufferLineConfig {
     }
 }
 
+/// How much path information is shown in the breadcrumb bar
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BreadcrumbPathOptions {
+    /// Show the full relative path before the symbols
+    #[default]
+    Full,
+    /// Show only the file name
+    File,
+    /// Show no path information
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct BreadcrumbConfig {
+    pub enable: bool,
+    pub path: BreadcrumbPathOptions,
+    /// Maximum number of symbol levels shown; when exceeded the outermost
+    /// symbols are elided with `…`. `0` means unlimited.
+    pub max_depth: usize,
+    /// Maximum length of a single crumb name; longer names are truncated in
+    /// the middle with `…`. `0` means unlimited.
+    pub max_name_length: usize,
+}
+
+impl Default for BreadcrumbConfig {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            path: BreadcrumbPathOptions::Full,
+            max_depth: 8,
+            max_name_length: 32,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct StatusLineConfig {
@@ -1778,6 +1817,7 @@ impl Default for Config {
             auto_info: true,
             file_picker: FilePickerConfig::default(),
             bufferline: BufferLineConfig::default(),
+            breadcrumb: BreadcrumbConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
             cursor_shape: CursorShapeConfig::default(),
