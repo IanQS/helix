@@ -4,6 +4,7 @@
 git remote add upstream https://github.com/gj1118/helix.git
 git fetch upstream
 git merge upstream/main
+
 ```
 
 # gj118's disclaimer
@@ -83,6 +84,8 @@ THEN THE IMPORTANT PART that is missing from the docs page(this way you get all 
 cp -R runtime ~/.config/helix/
 hx -g fetch
 hx -g build
+
+simple-completion-language-server fetch-external-snippets  # Make sure your snippets are working, Ian!
 ```
 
 **Full Height Mode:**
