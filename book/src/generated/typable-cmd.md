@@ -91,11 +91,12 @@
 | `:set-register`                                   | Set contents of the given register.                                                                                                                       |
 | `:redraw`                                         | Clear and re-render the whole UI                                                                                                                          |
 | `:move`, `:mv`                                    | Move the current buffer and its corresponding file to a different path                                                                                    |
+| `:move!`, `:mv!`                                  | Move the current buffer and its corresponding file to a different path creating necessary subdirectories                                                  |
 | `:yank-diagnostic`                                | Yank diagnostic(s) under primary cursor to register, or clipboard by default                                                                              |
 | `:read`, `:r`                                     | Load a file into buffer                                                                                                                                   |
 | `:echo`                                           | Prints the given arguments to the statusline.                                                                                                             |
-| `:fold`                                           | Fold text. Accepts the textobjects `class`, `function`, `comment`, and `syntax` (regions captured by the language's `folds.scm` query).                   |
-| `:unfold`                                         | Unfold text. Accepts the textobjects `class`, `function`, `comment`, and `syntax` (folds created from syntax regions).                                    |
+| `:fold`                                           | Fold text.                                                                                                                                                |
+| `:unfold`                                         | Unfold text.                                                                                                                                              |
 | `:noop`                                           | Does nothing.                                                                                                                                             |
 | `:notifications-history`, `:notif-history`, `:nh` | Show notification history.                                                                                                                                |
 | `:notifications-clear`, `:notif-clear`, `:nc`     | Clear notification history.                                                                                                                               |
@@ -104,3 +105,4 @@
 | `:workspace-trust`                                | Allow language servers and local config for the current workspace.                                                                                        |
 | `:workspace-untrust`                              | Revoke the current workspace's trust grant or exclusion.                                                                                                  |
 | `:workspace-exclude`                              | Mark the current workspace as never-prompt. Never prompts for trust again.                                                                                |
+| `:reload-history`                                 | Reload history files for persistent state                                                                                                                 |

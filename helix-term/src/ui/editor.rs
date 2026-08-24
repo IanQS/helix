@@ -27,6 +27,7 @@ use helix_core::{
     visual_offset_from_block, Change, Position, Range, Selection, Transaction,
 };
 use helix_loader::VERSION_AND_GIT_HASH;
+use helix_lsp::lsp::SymbolKind;
 use helix_view::{
     // annotations::diagnostics::DiagnosticFilter,
     document::{Mode, SCRATCH_BUFFER_NAME},
@@ -71,6 +72,24 @@ pub struct EditorView {
     /// Tracks if there are prompt layers active (updated by compositor)
     pub prompt_active: bool,
     notification_popup: NotificationPopup,
+    /// Cache for bufferline display names to avoid O(n³) recomputation per frame
+    bufferline_cache: BufferlineCache,
+}
+
+/// Cached data for bufferline rendering.
+/// Names (display name per document) are recomputed only when document set changes.
+/// Texts (formatted strings including modified indicator) are recomputed when
+/// document modified status or document set changes.
+#[derive(Default)]
+struct BufferlineCache {
+    doc_ids: Vec<DocumentId>,
+    doc_paths: Vec<String>,
+    names: Vec<(DocumentId, String)>,
+    modified: Vec<bool>,
+    texts: Vec<String>,
+    widths: Vec<u16>,
+    positions: Vec<u16>,
+    total_width: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +117,7 @@ impl EditorView {
             bufferline_positions: Vec::new(),
             prompt_active: false,
             notification_popup: NotificationPopup::new(),
+            bufferline_cache: BufferlineCache::default(),
         }
     }
 
@@ -379,6 +399,10 @@ impl EditorView {
 
         let text_annotations = view.text_annotations(doc, Some(theme));
         let mut decorations = DecorationManager::default();
+
+        if config.breadcrumb.enable {
+            Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
+        }
 
         if !(is_focused && self.terminal_focused) {
             surface.set_style(area, theme.get("ui.background.inactive"))
@@ -1096,39 +1120,14 @@ impl EditorView {
 
         self.bufferline_info.clear();
 
-        // First pass: calculate all buffer positions and determine if scrolling is needed
-        let mut total_width = 0u16;
-        let mut buffer_texts = Vec::new();
-        let mut buffer_widths = Vec::new();
+        // Rebuild cache if document set changed
+        self.refresh_bufferline_cache(editor);
 
-        for (idx, doc) in editor.documents().enumerate() {
-            let fname = Self::make_document_name(doc, editor);
-
-            // Add separator width if not the first document
-            if idx > 0 {
-                let sep = &editor.config().bufferline.separator;
-                total_width += sep.len() as u16;
-            }
-
-            let icons = ICONS.load();
-
-            let text = if let Some(icon) = icons.mime().get(doc.path(), doc.language_name()) {
-                format!(
-                    " {}  {} {}",
-                    icon.glyph(),
-                    fname,
-                    if doc.is_modified() { "[+] " } else { "" }
-                )
-            } else {
-                format!(" {} {}", fname, if doc.is_modified() { "[+] " } else { "" })
-            };
-
-            self.bufferline_positions.push(total_width);
-            let text_width = text.len() as u16;
-            buffer_texts.push(text);
-            buffer_widths.push(text_width);
-            total_width += text_width;
-        }
+        // Use cached values directly
+        let total_width = self.bufferline_cache.total_width;
+        let buffer_texts = &self.bufferline_cache.texts;
+        let buffer_widths = &self.bufferline_cache.widths;
+        self.bufferline_positions = self.bufferline_cache.positions.clone();
 
         // Determine scroll offset
         let scroll_offset =
@@ -1218,10 +1217,12 @@ impl EditorView {
         }
     }
 
-    fn make_document_name(doc: &Document, editor: &Editor) -> String {
-        let scratch = PathBuf::from(SCRATCH_BUFFER_NAME); // default filename to use for scratch buffer
+    fn refresh_bufferline_cache(&mut self, editor: &Editor) {
+        let scratch = PathBuf::from(SCRATCH_BUFFER_NAME);
 
-        let paths: Vec<String> = editor
+        let current_ids: Vec<DocumentId> = editor.documents().map(|d| d.id()).collect();
+        let current_modified: Vec<bool> = editor.documents().map(|d| d.is_modified()).collect();
+        let current_paths: Vec<String> = editor
             .documents()
             .map(|d| {
                 d.path()
@@ -1232,21 +1233,85 @@ impl EditorView {
             })
             .collect();
 
-        let components: Vec<Vec<String>> = paths
-            .iter()
-            .map(|p| p.split(MAIN_SEPARATOR).map(String::from).collect())
-            .collect();
+        // Cache is fully valid only if doc IDs, paths, and modified states all match
+        if self.bufferline_cache.doc_ids == current_ids
+            && self.bufferline_cache.doc_paths == current_paths
+            && self.bufferline_cache.modified == current_modified
+        {
+            return;
+        }
 
-        let doc_path = doc
-            .path()
-            .unwrap_or(&scratch)
-            .to_str()
-            .unwrap_or_default()
-            .to_string();
+        let icons = ICONS.load();
 
-        let doc_index = paths.iter().position(|p| p == &doc_path).unwrap();
+        // Recompute names (O(n²)) when document set OR paths change
+        let names: Vec<(DocumentId, String)> = if self.bufferline_cache.doc_ids == current_ids
+            && self.bufferline_cache.doc_paths == current_paths
+        {
+            // Only modified status changed — reuse existing names
+            self.bufferline_cache.names.clone()
+        } else {
+            // Doc set or paths changed — recompute names
+            let components: Vec<Vec<String>> = current_paths
+                .iter()
+                .map(|p| p.split(MAIN_SEPARATOR).map(String::from).collect())
+                .collect();
+            editor
+                .documents()
+                .enumerate()
+                .map(|(idx, doc)| {
+                    let name = Self::compute_display_name(&components, idx);
+                    (doc.id(), name)
+                })
+                .collect()
+        };
+
+        // Build texts and widths (always recompute when anything changed)
+        let mut texts = Vec::new();
+        let mut widths = Vec::new();
+        let mut positions = Vec::new();
+        let mut total_width = 0u16;
+
+        for (idx, doc) in editor.documents().enumerate() {
+            if idx > 0 {
+                let sep = &editor.config().bufferline.separator;
+                total_width += sep.len() as u16;
+            }
+
+            let fname = &names[idx].1;
+            let text = if let Some(icon) = icons.mime().get(doc.path(), doc.language_name()) {
+                format!(
+                    " {}  {} {}",
+                    icon.glyph(),
+                    fname,
+                    if doc.is_modified() { "[+] " } else { "" }
+                )
+            } else {
+                format!(" {} {}", fname, if doc.is_modified() { "[+] " } else { "" })
+            };
+
+            positions.push(total_width);
+            let text_width = text.len() as u16;
+            texts.push(text);
+            widths.push(text_width);
+            total_width += text_width;
+        }
+
+        self.bufferline_cache = BufferlineCache {
+            doc_ids: current_ids,
+            doc_paths: current_paths,
+            names,
+            modified: current_modified,
+            texts,
+            widths,
+            positions,
+            total_width,
+        };
+    }
+
+    /// Compute a unique display name for the document at `doc_index` in the component list.
+    /// This is the O(n²) core of `make_document_name` but called only when documents change.
+    fn compute_display_name(components: &[Vec<String>], doc_index: usize) -> String {
         let doc_components_len = components[doc_index].len();
-
         let mut k = 1;
 
         loop {
@@ -1270,8 +1335,181 @@ impl EditorView {
             if count == 0 {
                 return curr_doc.join(MAIN_SEPARATOR_STR);
             }
-
             k += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub fn render_breadcrumb(
+        editor: &Editor,
+        doc: &Document,
+        view: &View,
+        viewport: Rect,
+        surface: &mut Surface,
+    ) {
+        use helix_view::editor::BreadcrumbPathOptions::{File, Full};
+
+        #[inline]
+        #[must_use]
+        fn draw_element(
+            surface: &mut Surface,
+            viewport: Rect,
+            x: u16,
+            content: &str,
+            style: Style,
+        ) -> u16 {
+            let remaining = viewport.right().saturating_sub(x) as usize;
+            surface
+                .set_stringn(x, viewport.y, content, remaining, style)
+                .0
+        }
+
+        /// Truncate a crumb name in the middle with `…` when it exceeds
+        /// `max_len` (when `max_len` is non-zero).
+        fn truncate_name(name: &str, max_len: usize) -> std::borrow::Cow<'_, str> {
+            const ELLIPSIS: char = '…';
+            if max_len == 0 || name.chars().count() <= max_len {
+                return std::borrow::Cow::Borrowed(name);
+            }
+            let chars: Vec<char> = name.chars().collect();
+            let keep = max_len.saturating_sub(1);
+            let head = keep.div_ceil(2).max(1);
+            let tail = keep - head;
+            let mut out = String::with_capacity(max_len * 4);
+            out.extend(&chars[..head]);
+            out.push(ELLIPSIS);
+            if tail > 0 {
+                out.extend(&chars[chars.len() - tail..]);
+            }
+            std::borrow::Cow::Owned(out)
+        }
+
+        let config = editor.config();
+
+        let style = editor
+            .theme
+            .try_get_exact("ui.breadcrumb")
+            .unwrap_or_else(|| editor.theme.get("ui.text"));
+
+        surface.clear_with(viewport, style);
+
+        let mut x = viewport.x.saturating_add(1);
+
+        let separator = " > ";
+        let separator_style = editor.theme.get("ui.breadcrumb.separator");
+        let ellipsis_style = editor.theme.get("ui.breadcrumb.separator");
+        let mut draw_separator = false;
+
+        if matches!(config.breadcrumb.path, Full | File) {
+            if let Some(path) = doc.relative_path() {
+                let mut components = path.components().peekable();
+
+                if matches!(config.breadcrumb.path, File) {
+                    // Skip until the filename component.
+                    //
+                    // NOTE:
+                    // We could use `next_back` to get this element directly, but
+                    // this keeps our logic below simpler, with the logic for `Full`
+                    // and `File` being the same below this point.
+                    //
+                    // PERF: The `clone` is cheap; should be equivalent to a `Copy`.
+                    while components.clone().nth(1).is_some() {
+                        components.next();
+                    }
+                }
+
+                while let Some(component) = components.next() {
+                    if draw_separator {
+                        x = draw_element(surface, viewport, x, separator, separator_style);
+                    } else {
+                        draw_separator = true;
+                    }
+
+                    let segment = component.as_os_str().to_string_lossy();
+                    let is_directory = components.peek().is_some();
+
+                    let style = if is_directory {
+                        editor.theme.get("ui.text.directory")
+                    } else {
+                        style
+                    };
+
+                    x = draw_element(surface, viewport, x, &segment, style);
+                }
+            } else {
+                // Handle `[scratch]`
+                x = draw_element(surface, viewport, x, SCRATCH_BUFFER_NAME, style);
+            }
+        }
+
+        let icons = ICONS.load();
+        let max_name_length = config.breadcrumb.max_name_length;
+
+        // Draw symbols, if any.
+        if let Some(breadcrumb) = doc.breadcrumbs.get(&view.id) {
+            if breadcrumb.elided() {
+                if draw_separator {
+                    x = draw_element(surface, viewport, x, separator, separator_style);
+                } else {
+                    draw_separator = true;
+                }
+                x = draw_element(surface, viewport, x, "…", ellipsis_style);
+            }
+
+            for symbol in breadcrumb.iter() {
+                if draw_separator {
+                    x = draw_element(surface, viewport, x, separator, separator_style);
+                } else {
+                    draw_separator = true;
+                }
+
+                let kind_name = crate::commands::lsp::display_symbol_kind(symbol.kind);
+
+                if let Some(icon) = icons.kind().get(kind_name) {
+                    let icon_style = icon
+                        .color()
+                        .map(|color| Style::default().fg(color))
+                        .unwrap_or_default();
+                    x = draw_element(surface, viewport, x, icon.glyph(), icon_style);
+                    x = draw_element(surface, viewport, x, " ", Style::default());
+                }
+
+                let style = match symbol.kind {
+                    SymbolKind::MODULE
+                    | SymbolKind::NAMESPACE
+                    | SymbolKind::PACKAGE => editor.theme.get("namespace"),
+
+                    SymbolKind::OBJECT // impl Block
+                    | SymbolKind::STRUCT
+                    | SymbolKind::INTERFACE
+                    | SymbolKind::CLASS => editor.theme.get("type"),
+
+                    SymbolKind::METHOD => editor.theme.get("function.method"),
+                    SymbolKind::FUNCTION => editor.theme.get("function"),
+
+                    SymbolKind::ENUM => editor.theme.get("type.enum"),
+                    SymbolKind::ENUM_MEMBER => editor.theme.get("type.enum.variant"),
+
+                    SymbolKind::FIELD | SymbolKind::PROPERTY => {
+                        editor.theme.get("variable.other.member")
+                    }
+
+                    SymbolKind::VARIABLE => editor.theme.get("variable"),
+                    SymbolKind::CONSTANT => editor.theme.get("constant"),
+                    SymbolKind::CONSTRUCTOR => editor.theme.get("constructor"),
+                    SymbolKind::STRING => editor.theme.get("string"),
+                    SymbolKind::NUMBER => editor.theme.get("constant.numeric"),
+                    SymbolKind::BOOLEAN => editor.theme.get("constant.builtin.boolean"),
+                    SymbolKind::ARRAY => editor.theme.get("punctuation.bracket"),
+                    SymbolKind::KEY => editor.theme.get("label"),
+                    SymbolKind::NULL => editor.theme.get("constant.builtin"),
+                    SymbolKind::TYPE_PARAMETER => editor.theme.get("type.parameter"),
+                    _ => style,
+                };
+
+                let name = truncate_name(&symbol.name, max_name_length);
+                x = draw_element(surface, viewport, x, &name, style);
+            }
         }
     }
 
