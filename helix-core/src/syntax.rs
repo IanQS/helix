@@ -16,8 +16,8 @@ use config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfi
 use foldhash::HashSet;
 use helix_loader::grammar::get_language;
 use helix_stdx::rope::RopeSliceExt as _;
-use once_cell::sync::OnceCell;
 use ropey::RopeSlice;
+use std::sync::OnceLock;
 use tree_house::{
     highlighter,
     query_iter::QueryIter,
@@ -431,9 +431,9 @@ impl Loader {
         // NOTE: this is slightly different than the one for injection markers in tree-house. It
         // is anchored at the beginning.
         use helix_stdx::rope::Regex;
-        use once_cell::sync::Lazy;
+        use std::sync::LazyLock;
         const SHEBANG: &str = r"^#!\s*(?:\S*[/\\](?:env\s+(?:\-\S+\s+)*)?)?([^\s\.\d]+)";
-        static SHEBANG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(SHEBANG).unwrap());
+        static SHEBANG_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(SHEBANG).unwrap());
 
         let marker = SHEBANG_REGEX
             .captures_iter(regex_cursor::Input::new(text))
@@ -1337,12 +1337,12 @@ impl RainbowQuery {
 
 #[cfg(test)]
 mod test {
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     use super::*;
     use crate::{Rope, Transaction};
 
-    static LOADER: Lazy<Loader> = Lazy::new(crate::config::default_lang_loader);
+    static LOADER: LazyLock<Loader> = LazyLock::new(crate::config::default_lang_loader);
 
     #[test]
     fn test_textobject_queries() {
