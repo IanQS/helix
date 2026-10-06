@@ -20,6 +20,7 @@ regex-cursor = "0.1.5"
 bitflags.workspace = true
 regex-automata = "0.4.14"
 unicode-segmentation.workspace = true
+once_cell.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 percent-encoding = "2.3"
 

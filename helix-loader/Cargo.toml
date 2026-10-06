@@ -22,6 +22,7 @@ serde = { version = "1.0", features = ["derive"] }
 toml.workspace = true
 etcetera.workspace = true
 parking_lot.workspace = true
+once_cell.workspace = true
 sha2 = "0.11"
 globset.workspace = true
 log = "0.4"

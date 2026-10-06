@@ -40,24 +40,24 @@ pub use tree_house::{
 #[derive(Debug)]
 pub struct LanguageData {
     config: Arc<LanguageConfiguration>,
-    syntax: OnceCell<Option<SyntaxConfig>>,
-    indent_query: OnceCell<Option<IndentQuery>>,
-    textobject_query: OnceCell<Option<TextObjectQuery>>,
-    fold_query: OnceCell<Option<FoldQuery>>,
-    tag_query: OnceCell<Option<TagQuery>>,
-    rainbow_query: OnceCell<Option<RainbowQuery>>,
+    syntax: OnceLock<Option<SyntaxConfig>>,
+    indent_query: OnceLock<Option<IndentQuery>>,
+    textobject_query: OnceLock<Option<TextObjectQuery>>,
+    fold_query: OnceLock<Option<FoldQuery>>,
+    tag_query: OnceLock<Option<TagQuery>>,
+    rainbow_query: OnceLock<Option<RainbowQuery>>,
 }
 
 impl LanguageData {
     fn new(config: LanguageConfiguration) -> Self {
         Self {
             config: Arc::new(config),
-            syntax: OnceCell::new(),
-            indent_query: OnceCell::new(),
-            textobject_query: OnceCell::new(),
-            fold_query: OnceCell::new(),
-            tag_query: OnceCell::new(),
-            rainbow_query: OnceCell::new(),
+            syntax: OnceLock::new(),
+            indent_query: OnceLock::new(),
+            textobject_query: OnceLock::new(),
+            fold_query: OnceLock::new(),
+            tag_query: OnceLock::new(),
+            rainbow_query: OnceLock::new(),
         }
     }
 
